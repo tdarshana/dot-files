@@ -1,81 +1,138 @@
-return {
-  "hrsh7th/nvim-cmp",
-  version = false, -- last release is way too old
-  event = "InsertEnter",
-  dependencies = {
-    "hrsh7th/cmp-nvim-lsp",
-    "hrsh7th/cmp-buffer",
-    "hrsh7th/cmp-path",
-  },
-  -- Not all LSP servers add brackets when completing a function.
-  -- To better deal with this, LazyVim adds a custom option to cmp,
-  -- that you can configure. For example:
-  --
-  -- ```lua
-  -- opts = {
-  --   auto_brackets = { "python" }
-  -- }
-  -- ```
-  opts = function()
-    vim.api.nvim_set_hl(0, "CmpGhostText", { link = "Comment", default = true })
-    local cmp = require("cmp")
-    local defaults = require("cmp.config.default")()
-    local auto_select = true
-    return {
-      auto_brackets = {}, -- configure any filetype to auto add brackets
-      completion = {
-        completeopt = "menu,menuone,noinsert" .. (auto_select and "" or ",noselect"),
-      },
-      preselect = auto_select and cmp.PreselectMode.Item or cmp.PreselectMode.None,
-      mapping = cmp.mapping.preset.insert({
-        ["<C-b>"] = cmp.mapping.scroll_docs(-4),
-        ["<C-f>"] = cmp.mapping.scroll_docs(4),
-        ["<C-Space>"] = cmp.mapping.complete(),
-        ["<CR>"] = cmp.confirm({ select = auto_select }),
-        ["<C-y>"] = cmp.confirm({ select = true }),
-        ["<S-CR>"] = cmp.confirm({ behavior = cmp.ConfirmBehavior.Replace }), -- Accept currently selected item. Set `select` to `false` to only confirm explicitly selected items.
-        ["<C-CR>"] = function(fallback)
-          cmp.abort()
-          fallback()
-        end,
-      }),
-      sources = cmp.config.sources({
-        -- Copilot Source
-        { name = "copilot", group_inex = 2 },
-        -- Other sources
-        { name = "nvim_lsp", group_index = 2 },
-        { name = "path", group_index = 2 },
-      }, {
-        { name = "buffer" },
-      }),
-      formatting = {
-        format = function(entry, item)
-          local icons = LazyVim.config.icons.kinds
-          if icons[item.kind] then
-            item.kind = icons[item.kind] .. item.kind
-          end
+local cmp_status_ok, cmp = pcall(require, "cmp")
+if not cmp_status_ok then
+  return
+end
 
-          local widths = {
-            abbr = vim.g.cmp_widths and vim.g.cmp_widths.abbr or 40,
-            menu = vim.g.cmp_widths and vim.g.cmp_widths.menu or 30,
-          }
+local snip_status_ok, luasnip = pcall(require, "luasnip")
+if not snip_status_ok then
+  return
+end
 
-          for key, width in pairs(widths) do
-            if item[key] and vim.fn.strdisplaywidth(item[key]) > width then
-              item[key] = vim.fn.strcharpart(item[key], 0, width - 1) .. "…"
-            end
-          end
+require("luasnip/loaders/from_vscode").lazy_load()
 
-          return item
-        end,
-      },
-      experimental = {
-        ghost_text = {
-          hl_group = "CmpGhostText",
-        },
-      },
-      sorting = defaults.sorting,
-    }
-  end,
-  main = "lazyvim.util.cmp",
+local check_backspace = function()
+  local col = vim.fn.col(".") - 1
+  return col == 0 or vim.fn.getline("."):sub(col, col):match("%s")
+end
+
+--   פּ ﯟ   some other good icons
+local kind_icons = {
+  Text = "",
+  Method = "m",
+  Function = "",
+  Constructor = "",
+  Field = "",
+  Variable = "",
+  Class = "",
+  Interface = "",
+  Module = "",
+  Property = "",
+  Unit = "",
+  Value = "",
+  Enum = "",
+  Keyword = "",
+  Snippet = "",
+  Color = "",
+  File = "",
+  Reference = "",
+  Folder = "",
+  EnumMember = "",
+  Constant = "",
+  Struct = "",
+  Event = "",
+  Operator = "",
+  TypeParameter = "",
+  Copilot = "",
 }
+-- find more here: https://www.nerdfonts.com/cheat-sheet
+
+cmp.setup({
+  snippet = {
+    expand = function(args)
+      luasnip.lsp_expand(args.body) -- For `luasnip` users.
+    end,
+  },
+  mapping = {
+    ["<C-k>"] = cmp.mapping.select_prev_item(),
+    ["<C-j>"] = cmp.mapping.select_next_item(),
+    ["<C-b>"] = cmp.mapping(cmp.mapping.scroll_docs(-1), { "i", "c" }),
+    ["<C-f>"] = cmp.mapping(cmp.mapping.scroll_docs(1), { "i", "c" }),
+    ["<C-Space>"] = cmp.mapping(cmp.mapping.complete(), { "i", "c" }),
+    ["<C-y>"] = cmp.config.disable, -- Specify `cmp.config.disable` if you want to remove the default `<C-y>` mapping.
+    ["<C-e>"] = cmp.mapping({
+      i = cmp.mapping.abort(),
+      c = cmp.mapping.close(),
+    }),
+    -- Accept currently selected item. If none selected, `select` first item.
+    -- Set `select` to `false` to only confirm explicitly selected items.
+    ["<CR>"] = cmp.mapping.confirm({ select = true }),
+    ["<Tab>"] = cmp.mapping(function(fallback)
+      if cmp.visible() then
+        cmp.select_next_item()
+      elseif require("copilot.suggestion").is_visible() then
+        require("copilot.suggestion").accept()
+      elseif luasnip.expandable() then
+        luasnip.expand()
+      elseif luasnip.expand_or_jumpable() then
+        luasnip.expand_or_jump()
+      elseif check_backspace() then
+        fallback()
+      else
+        fallback()
+      end
+    end, {
+      "i",
+      "s",
+    }),
+    ["<S-Tab>"] = cmp.mapping(function(fallback)
+      if cmp.visible() then
+        cmp.select_prev_item()
+      elseif luasnip.jumpable(-1) then
+        luasnip.jump(-1)
+      else
+        fallback()
+      end
+    end, {
+      "i",
+      "s",
+    }),
+  },
+  formatting = {
+    expandable_indicator = true,
+    fields = { "kind", "abbr", "menu" },
+    format = function(entry, vim_item)
+      -- Kind icons
+      vim_item.kind = string.format("%s", kind_icons[vim_item.kind])
+      -- vim_item.kind = string.format('%s %s', kind_icons[vim_item.kind], vim_item.kind) -- This concatonates the icons with the name of the item kind
+      vim_item.menu = ({
+        nvim_lsp = "[LSP]",
+        luasnip = "[Snippet]",
+        buffer = "[Buffer]",
+        path = "[Path]",
+        copilot = "[Copilot]",
+      })[entry.source.name]
+      return vim_item
+    end,
+  },
+  sources = {
+    { name = "copilot" },
+    { name = "nvim_lsp" },
+    { name = "luasnip" },
+    { name = "buffer" },
+    { name = "path" },
+    { name = "cmdline" },
+  },
+  confirm_opts = {
+    behavior = cmp.ConfirmBehavior.Replace,
+    select = false,
+  },
+  window = {
+    documentation = {
+      border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" },
+    },
+  },
+  experimental = {
+    ghost_text = false,
+    native_menu = false,
+  },
+})
